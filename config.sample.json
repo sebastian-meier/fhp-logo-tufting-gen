@@ -4,9 +4,7 @@
         "height": 260,
         "dst": "assets/output.png",
         "separations": {
-            "enabled": true,
-            "dir": "assets/separations",
-            "prefix": "color"
+            "dir": "assets/separations"
         }
     },
     "input": {
@@ -15,15 +13,14 @@
     "palette": {
         "background": "#ffffff",
         "colors": [
-            { "hex": "#ff2d55", "percentage": 50 },
-            { "hex": "#00b3a4", "percentage": 30 },
-            { "hex": "#1a1a1a", "percentage": 20 }
+            { "hex": "#ff2d55", "percentage": 1 },
+            { "hex": "#00b3a4", "percentage": 1 },
+            { "hex": "#1a1a1a", "percentage": 1 }
         ]
     },
     "glitch": {
         "sliceCount": 30,
         "maxOffset": 16,
-        "fit": 0.85,
-        "seeds": [1234, 5678, 91011]
+        "seed": 1234
     }
 }

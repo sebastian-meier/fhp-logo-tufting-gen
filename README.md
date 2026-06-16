@@ -10,7 +10,10 @@ Generative design tool that turns a logo into a glitched, multi-colour graphic f
 
 ```sh
 npm install
+cp config.sample.json config.json
 ```
+
+`config.json` is your local, untracked working copy (see [Configuration](#configuration-configjson)) — it's gitignored so personal tweaks (palette, seeds, sizes, …) don't end up in version control. [config.sample.json](config.sample.json) is the tracked template; copy it again whenever you want to reset to defaults.
 
 ## Usage
 
@@ -38,6 +41,8 @@ All paths in the config file are resolved relative to the config file's own loca
 Because the main image and the separations are built from the same strip plan, the separations always line up exactly with what's visible in the main output.
 
 ## Configuration (`config.json`)
+
+`config.json` is gitignored and local to your checkout. [config.sample.json](config.sample.json) is the tracked template — a minimal config that omits fields with sensible defaults; run `cp config.sample.json config.json` to (re)create your working copy. The example below shows every available field, including the optional ones.
 
 ```json
 {
@@ -159,7 +164,8 @@ assets/
   logo.svg              # input logo (tracked)
   output*.png           # generated output(s) — not tracked, removed by `npm run clean`
   separations/           # generated color separations — not tracked, removed by `npm run clean`
-config.json              # all generation settings
+config.sample.json       # tracked template — copy to config.json to get started
+config.json              # your local generation settings — gitignored
 generate.js              # generates the glitch graphic(s) and separations
 clean.js                 # removes generated output
 seeds.js                 # writes N fresh random seeds into config.json
