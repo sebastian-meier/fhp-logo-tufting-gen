@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "generate": "node generate.js",
-    "clean": "node clean.js"
+    "clean": "node clean.js",
+    "seeds": "node seeds.js"
   },
   "license": "MIT",
   "dependencies": {

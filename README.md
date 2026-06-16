@@ -20,6 +20,9 @@ node generate.js path/to/other-config.json   # use a different config file
 
 npm run clean               # delete everything generate.js produced
 node clean.js path/to/other-config.json
+
+npm run seeds -- 5          # write 5 fresh random seeds into config.json's glitch.seeds
+node seeds.js 5 path/to/other-config.json
 ```
 
 All paths in the config file are resolved relative to the config file's own location, not the current working directory.
@@ -117,6 +120,17 @@ This produces `assets/output-1234.png`, `assets/output-5678.png`, `assets/output
 
 If `seeds` is omitted, a single image is generated using `glitch.seed` (or a random seed if that's also omitted), written to the plain `output.dst` path with no suffix.
 
+### Generating a batch of seeds
+
+Rather than inventing seed numbers by hand, use `seeds.js` to fill `glitch.seeds` with N fresh, unique random values:
+
+```sh
+npm run seeds -- 10            # writes 10 random seeds into config.json
+node seeds.js 10 my-config.json   # or target a different config file
+```
+
+It rewrites only the `"seeds": [...]` line in place (or inserts one into the `glitch` object if it's missing), leaving the rest of the file's formatting untouched. Run `npm run generate` afterwards to render the new batch.
+
 ## Color separations
 
 When `output.separations` is enabled, in addition to the main composite, the script writes one pure black/white PNG per palette colour, plus one for the background:
@@ -148,4 +162,5 @@ assets/
 config.json              # all generation settings
 generate.js              # generates the glitch graphic(s) and separations
 clean.js                 # removes generated output
+seeds.js                 # writes N fresh random seeds into config.json
 ```
