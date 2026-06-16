@@ -2,9 +2,14 @@
     "output": {
         "width": 375,
         "height": 260,
+        "canvasWidth":375,
+        "canvasHeight":260,
+        "canvasEnabled":true,
         "dst": "assets/output.png",
         "separations": {
-            "dir": "assets/separations"
+            "dir": "assets/separations",
+            "enabled": false,
+            "prefix": "color"
         }
     },
     "input": {
@@ -21,6 +26,6 @@
     "glitch": {
         "sliceCount": 30,
         "maxOffset": 16,
-        "seed": 1234
+        "seed": [1234]
     }
 }
