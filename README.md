@@ -35,10 +35,11 @@ All paths in the config file are resolved relative to the config file's own loca
 1. The input SVG is rasterized and centered on a transparent canvas matching the output size.
 2. The canvas is divided into `glitch.sliceCount` equal-width vertical strips.
 3. Each strip is assigned one of the palette colors (in proportion to `percentage`, see below) and a random vertical offset between `-maxOffset` and `+maxOffset` pixels.
-4. The colored, offset strips are composited onto a white (or configured background colour) canvas and saved as the main output PNG.
-5. If separations are enabled, the same strip layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
+4. The actual ink bounding box of the offset strips is measured, and the crop window is centered on it — so the glitched logo stays vertically (and horizontally) centered in the canvas no matter how the random offsets happen to skew.
+5. The colored, offset strips are composited onto a white (or configured background colour) canvas and saved as the main output PNG.
+6. If separations are enabled, the same strip layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
 
-Because the main image and the separations are built from the same strip plan, the separations always line up exactly with what's visible in the main output.
+Because the main image and the separations are built from the same strip plan and the same centering calculation, the separations always line up exactly with what's visible in the main output.
 
 ## Configuration (`config.json`)
 

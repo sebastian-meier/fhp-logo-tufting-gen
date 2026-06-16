@@ -128,7 +128,7 @@ async function colorizeSlice(sliceAlphaBuffer, sliceWidth, height, color) {
   return sharp(flatColor).joinChannel(sliceAlphaBuffer).png().toBuffer();
 }
 
-async function buildGlitchedLogo(logoLayer, width, height, maxOffset, slices, colors) {
+async function buildGlitchedLogo(logoLayer, width, height, maxOffset, slices, colors, cropTop) {
   const paddedHeight = height + 2 * maxOffset;
 
   const composites = [];
@@ -150,14 +150,15 @@ async function buildGlitchedLogo(logoLayer, width, height, maxOffset, slices, co
     .png()
     .toBuffer();
 
-  return sharp(padded).extract({ left: 0, top: maxOffset, width, height });
+  return sharp(padded).extract({ left: 0, top: cropTop, width, height });
 }
 
 // Single source of truth for "is this pixel part of the glitched logo at all".
 // A pure black/white mask (hard threshold, no antialiasing): black = shape, white = background.
 // Every per-color and background separation is sliced from this one mask, so they
-// can never disagree with each other at a given pixel.
-async function buildShapeMask(logoLayer, width, height, maxOffset, slices) {
+// can never disagree with each other at a given pixel. Built at the full padded
+// height (before the final centered crop) so its bounding box can be measured.
+async function buildPaddedShapeMask(logoLayer, width, height, maxOffset, slices) {
   const paddedHeight = height + 2 * maxOffset;
 
   const composites = [];
@@ -173,7 +174,7 @@ async function buildShapeMask(logoLayer, width, height, maxOffset, slices) {
     composites.push({ input: mask, left: slice.left, top: maxOffset + slice.offset });
   }
 
-  const padded = await sharp({
+  return sharp({
     create: { width, height: paddedHeight, channels: 3, background: { r: 255, g: 255, b: 255 } },
   })
     .composite(composites)
@@ -181,8 +182,19 @@ async function buildShapeMask(logoLayer, width, height, maxOffset, slices) {
     .threshold(128)
     .png()
     .toBuffer();
+}
 
-  return sharp(padded).extract({ left: 0, top: maxOffset, width, height }).png().toBuffer();
+// The crop window is normally centered on the canvas, but a run of offsets
+// skewed mostly up or down shifts the glitched shape's actual ink off-center.
+// Finding the real ink bounding box (via trim) and centering the crop on its
+// midpoint keeps the glitch visually centered regardless of which offsets
+// were rolled, instead of assuming every slice's ink spans its full height.
+async function computeCenteredCropTop(paddedShapeMask, height, paddedHeight) {
+  const { info } = await sharp(paddedShapeMask).trim().toBuffer({ resolveWithObject: true });
+  const contentTop = -info.trimOffsetTop;
+  const midpoint = contentTop + info.height / 2;
+  const cropTop = Math.round(midpoint - height / 2);
+  return Math.max(0, Math.min(paddedHeight - height, cropTop));
 }
 
 // Restricts the shared shape mask to only the columns assigned to one color,
@@ -221,11 +233,15 @@ async function generateVariant(ctx, seed, isBatch) {
   const rng = mulberry32(seed);
   const slices = planSlices(width, glitch.sliceCount, glitch.maxOffset, colorWeights, rng);
 
+  const paddedHeight = height + 2 * glitch.maxOffset;
+  const paddedShapeMask = await buildPaddedShapeMask(logoLayer, width, height, glitch.maxOffset, slices);
+  const cropTop = await computeCenteredCropTop(paddedShapeMask, height, paddedHeight);
+
   const dstPath = path.resolve(
     baseDir,
     isBatch ? withSeedSuffix(config.output.dst, seed) : config.output.dst
   );
-  const glitched = await buildGlitchedLogo(logoLayer, width, height, glitch.maxOffset, slices, colors);
+  const glitched = await buildGlitchedLogo(logoLayer, width, height, glitch.maxOffset, slices, colors, cropTop);
   fs.mkdirSync(path.dirname(dstPath), { recursive: true });
   await glitched.flatten({ background }).png().toFile(dstPath);
   console.log(`Generated ${width}x${height} glitch graphic -> ${dstPath} (seed: ${seed})`);
@@ -238,7 +254,10 @@ async function generateVariant(ctx, seed, isBatch) {
     fs.mkdirSync(sepDir, { recursive: true });
     const prefix = separations.prefix ?? 'color';
 
-    const shapeMask = await buildShapeMask(logoLayer, width, height, glitch.maxOffset, slices);
+    const shapeMask = await sharp(paddedShapeMask)
+      .extract({ left: 0, top: cropTop, width, height })
+      .png()
+      .toBuffer();
 
     const backgroundHex = config.palette.background.replace('#', '');
     const backgroundBuffer = await extractBackgroundSeparation(shapeMask);

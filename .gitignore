@@ -1,3 +1,6 @@
+# macOS
+.DS_Store
+
 # Local config (copy config.sample.json to get started)
 /config.json
 
