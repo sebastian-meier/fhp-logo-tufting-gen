@@ -36,8 +36,9 @@ All paths in the config file are resolved relative to the config file's own loca
 2. The canvas is divided into `glitch.sliceCount` equal-width vertical strips.
 3. Each strip is assigned one of the palette colors (in proportion to `percentage`, see below) and a random vertical offset between `-maxOffset` and `+maxOffset` pixels.
 4. The actual ink bounding box of the offset strips is measured, and the crop window is centered on it — so the glitched logo stays vertically (and horizontally) centered in the canvas no matter how the random offsets happen to skew.
-5. The colored, offset strips are composited onto a white (or configured background colour) canvas and saved as the main output PNG.
-6. If separations are enabled, the same strip layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
+5. The colored, offset strips are composited onto a white (or configured background colour) canvas, producing the `width`×`height` image.
+6. If `output.canvasWidth`/`canvasHeight` are set, that image is placed in the upper-left of a larger canvas — see [Canvas expansion](#canvas-expansion) below — then saved as the main output PNG.
+7. If separations are enabled, the same strip layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
 
 Because the main image and the separations are built from the same strip plan and the same centering calculation, the separations always line up exactly with what's visible in the main output.
 
@@ -51,6 +52,9 @@ Because the main image and the separations are built from the same strip plan an
         "width": 375,
         "height": 260,
         "dst": "assets/output.png",
+        "canvasWidth": 375,
+        "canvasHeight": 320,
+        "canvasEnabled": true,
         "separations": {
             "enabled": true,
             "dir": "assets/separations",
@@ -81,9 +85,11 @@ Because the main image and the separations are built from the same strip plan an
 
 | Field | Type | Description |
 |---|---|---|
-| `width` | number | Canvas width in pixels. |
-| `height` | number | Canvas height in pixels. |
+| `width` | number | Canvas width in pixels — the glitch is generated at this size. |
+| `height` | number | Canvas height in pixels — the glitch is generated at this size. |
 | `dst` | string | Path to the main output PNG. When generating a batch (see `glitch.seeds`), each variant's seed is inserted before the extension, e.g. `assets/output.png` → `assets/output-1234.png`. |
+| `canvasWidth`, `canvasHeight` | number | Optional. If set (both must be set together), the generated `width`×`height` image is placed in the upper-left corner of a larger `canvasWidth`×`canvasHeight` canvas — see [Canvas expansion](#canvas-expansion). |
+| `canvasEnabled` | boolean | Only relevant when `canvasWidth`/`canvasHeight` are set. Defaults to `true`; set to `false` to keep the dimensions in the config without applying the canvas expansion. |
 | `separations` | object \| omitted | Color separation export settings. Omit entirely, or set `enabled: false`, to skip separations. |
 | `separations.enabled` | boolean | Defaults to `true` if the `separations` object is present. Set to `false` to keep the block in the config (for documentation/reference) without generating separation files. |
 | `separations.dir` | string | Directory for separation PNGs. In a batch run, each seed gets its own subfolder, e.g. `assets/separations/1234/`. |
@@ -149,6 +155,19 @@ These separations are:
 - **Mutually exclusive and exhaustive** — every pixel is black in exactly one of the separation files (never zero, never more than one), so overlaying all of them reconstructs the full glitched logo with no gaps or overlaps.
 
 This is intended for production workflows (e.g. tufting) where each colour needs its own clean stencil/mask.
+
+## Canvas expansion
+
+By default the output PNG is exactly `output.width`×`output.height`. Setting `output.canvasWidth`/`output.canvasHeight` places that generated image in the upper-left corner (untouched, unscaled) of a larger canvas instead — useful when the glitch needs to sit within a bigger fixed-size frame.
+
+```json
+"output": { "width": 375, "height": 180, "canvasWidth": 375, "canvasHeight": 260 }
+```
+
+- On the **main output**, the extra margin is transparent.
+- On **separations**, the extra margin is opaque white — consistent with white meaning "no ink" everywhere else in a separation. The mutual-exclusivity guarantee (each pixel black in exactly one separation) still holds within the original `width`×`height` region; in the margin, every separation is simply white.
+
+Set `output.canvasEnabled: false` to keep `canvasWidth`/`canvasHeight` in the config without applying this step (output stays exactly `width`×`height`).
 
 ## Cleaning up
 

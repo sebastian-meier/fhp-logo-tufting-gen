@@ -227,8 +227,20 @@ async function extractBackgroundSeparation(shapeMask) {
   return sharp(shapeMask).negate({ alpha: false }).png().toBuffer();
 }
 
+// Pastes a width x height image into the upper-left corner of a larger
+// canvasWidth x canvasHeight canvas. The extra margin is filled with
+// `background` — transparent for the main image, white for separations.
+async function expandCanvas(buffer, canvasWidth, canvasHeight, background) {
+  return sharp({
+    create: { width: canvasWidth, height: canvasHeight, channels: 4, background },
+  })
+    .composite([{ input: buffer, left: 0, top: 0 }])
+    .png()
+    .toBuffer();
+}
+
 async function generateVariant(ctx, seed, isBatch) {
-  const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer } = ctx;
+  const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas } = ctx;
 
   const rng = mulberry32(seed);
   const slices = planSlices(width, glitch.sliceCount, glitch.maxOffset, colorWeights, rng);
@@ -242,9 +254,14 @@ async function generateVariant(ctx, seed, isBatch) {
     isBatch ? withSeedSuffix(config.output.dst, seed) : config.output.dst
   );
   const glitched = await buildGlitchedLogo(logoLayer, width, height, glitch.maxOffset, slices, colors, cropTop);
+  let mainBuffer = await glitched.flatten({ background }).png().toBuffer();
+  if (canvas.enabled) {
+    mainBuffer = await expandCanvas(mainBuffer, canvas.width, canvas.height, { r: 0, g: 0, b: 0, alpha: 0 });
+  }
   fs.mkdirSync(path.dirname(dstPath), { recursive: true });
-  await glitched.flatten({ background }).png().toFile(dstPath);
-  console.log(`Generated ${width}x${height} glitch graphic -> ${dstPath} (seed: ${seed})`);
+  fs.writeFileSync(dstPath, mainBuffer);
+  const outputSize = canvas.enabled ? `${canvas.width}x${canvas.height}` : `${width}x${height}`;
+  console.log(`Generated ${outputSize} glitch graphic -> ${dstPath} (seed: ${seed})`);
 
   const separations = config.output.separations;
   const separationsEnabled = !!separations && separations.enabled !== false;
@@ -259,18 +276,22 @@ async function generateVariant(ctx, seed, isBatch) {
       .png()
       .toBuffer();
 
+    const writeSeparation = async (buffer, outPath) => {
+      const final = canvas.enabled
+        ? await expandCanvas(buffer, canvas.width, canvas.height, { r: 255, g: 255, b: 255, alpha: 255 })
+        : buffer;
+      fs.writeFileSync(outPath, final);
+      console.log(`Generated color separation -> ${outPath}`);
+    };
+
     const backgroundHex = config.palette.background.replace('#', '');
     const backgroundBuffer = await extractBackgroundSeparation(shapeMask);
-    const backgroundPath = path.join(sepDir, `background-${backgroundHex}.png`);
-    fs.writeFileSync(backgroundPath, backgroundBuffer);
-    console.log(`Generated color separation -> ${backgroundPath}`);
+    await writeSeparation(backgroundBuffer, path.join(sepDir, `background-${backgroundHex}.png`));
 
     for (let i = 0; i < colors.length; i++) {
       const buffer = await extractColorSeparation(shapeMask, width, height, slices, i);
       const hex = colorHexes[i].replace('#', '');
-      const outPath = path.join(sepDir, `${prefix}-${i + 1}-${hex}.png`);
-      fs.writeFileSync(outPath, buffer);
-      console.log(`Generated color separation -> ${outPath}`);
+      await writeSeparation(buffer, path.join(sepDir, `${prefix}-${i + 1}-${hex}.png`));
     }
   }
 }
@@ -305,6 +326,17 @@ async function main() {
     fit: config.glitch.fit ?? 0.85,
   };
 
+  const { canvasWidth, canvasHeight, canvasEnabled } = config.output;
+  if ((canvasWidth == null) !== (canvasHeight == null)) {
+    throw new Error('output.canvasWidth and output.canvasHeight must both be set together');
+  }
+  const hasCanvasSize = canvasWidth != null && canvasHeight != null;
+  const canvas = {
+    enabled: hasCanvasSize && canvasEnabled !== false,
+    width: canvasWidth,
+    height: canvasHeight,
+  };
+
   const isBatch = Array.isArray(config.glitch.seeds) && config.glitch.seeds.length > 0;
   const seeds = isBatch ? config.glitch.seeds : [config.glitch.seed ?? Date.now()];
 
@@ -313,7 +345,7 @@ async function main() {
   // across every variant in a batch run.
   const logoLayer = await rasterizeCenteredLogo(svgBuffer, width, height, glitch.fit);
 
-  const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer };
+  const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas };
   for (const seed of seeds) {
     await generateVariant(ctx, seed, isBatch);
   }
