@@ -1,0 +1,15 @@
+{
+  "name": "fhp-logo-tufting-gen",
+  "version": "1.0.0",
+  "description": "Generative design tool that turns a logo into a glitched, multi-colour graphic for tufting exports.",
+  "main": "generate.js",
+  "type": "commonjs",
+  "scripts": {
+    "generate": "node generate.js",
+    "clean": "node clean.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "sharp": "^0.33.5"
+  }
+}

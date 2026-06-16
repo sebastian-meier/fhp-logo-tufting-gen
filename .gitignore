@@ -1,3 +1,7 @@
+# Generated output (see npm run generate / npm run clean)
+assets/output*.png
+assets/separations/
+
 # Logs
 logs
 *.log
