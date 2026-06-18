@@ -89,11 +89,31 @@ async function rasterizeCenteredLogo(svgBuffer, width, height, fit) {
     .toBuffer();
 }
 
+// Splits a strip's height into segmentsCfg.segmentCount horizontal segments,
+// each with its own y-axis offset. When disabled, returns a single full-height
+// segment with zero offset so the calling code stays uniform.
+function planSegments(height, segmentsCfg, rng) {
+  if (!segmentsCfg.enabled) {
+    return [{ top: 0, height, offset: 0 }];
+  }
+  const count = segmentsCfg.segmentCount;
+  const maxOff = segmentsCfg.maxOffset;
+  const segs = [];
+  for (let i = 0; i < count; i++) {
+    const top = Math.round((i * height) / count);
+    const bottom = Math.round(((i + 1) * height) / count);
+    const h = bottom - top;
+    if (h <= 0) continue;
+    segs.push({ top, height: h, offset: randInt(rng, -maxOff, maxOff) });
+  }
+  return segs;
+}
+
 // One slice plan shared by the colored composite and the color separations,
 // so the separations line up exactly with what's visible in the combined image.
 // Each color is given an exact share of the slices (per colorWeights), then the
 // assignment is shuffled so same-colored slices don't clump together.
-function planSlices(width, sliceCount, maxOffset, colorWeights, rng) {
+function planSlices(width, height, sliceCount, maxOffset, segmentsCfg, colorWeights, rng) {
   const counts = allocateColorCounts(sliceCount, colorWeights);
   const colorPool = [];
   counts.forEach((count, colorIndex) => {
@@ -114,6 +134,7 @@ function planSlices(width, sliceCount, maxOffset, colorWeights, rng) {
       width: sliceWidth,
       colorIndex,
       offset: randInt(rng, -maxOffset, maxOffset),
+      segments: planSegments(height, segmentsCfg, rng),
     });
   }
   return slices;
@@ -128,19 +149,25 @@ async function colorizeSlice(sliceAlphaBuffer, sliceWidth, height, color) {
   return sharp(flatColor).joinChannel(sliceAlphaBuffer).png().toBuffer();
 }
 
-async function buildGlitchedLogo(logoLayer, width, height, maxOffset, slices, colors, cropTop) {
-  const paddedHeight = height + 2 * maxOffset;
+async function buildGlitchedLogo(logoLayer, width, height, totalMaxOffset, slices, colors, cropTop) {
+  const paddedHeight = height + 2 * totalMaxOffset;
 
   const composites = [];
   for (const slice of slices) {
-    const sliceAlpha = await sharp(logoLayer)
-      .extract({ left: slice.left, top: 0, width: slice.width, height })
-      .extractChannel(3)
-      .png()
-      .toBuffer();
+    for (const seg of slice.segments) {
+      const segAlpha = await sharp(logoLayer)
+        .extract({ left: slice.left, top: seg.top, width: slice.width, height: seg.height })
+        .extractChannel(3)
+        .png()
+        .toBuffer();
 
-    const coloredSlice = await colorizeSlice(sliceAlpha, slice.width, height, colors[slice.colorIndex]);
-    composites.push({ input: coloredSlice, left: slice.left, top: maxOffset + slice.offset });
+      const coloredSeg = await colorizeSlice(segAlpha, slice.width, seg.height, colors[slice.colorIndex]);
+      composites.push({
+        input: coloredSeg,
+        left: slice.left,
+        top: totalMaxOffset + slice.offset + seg.top + seg.offset,
+      });
+    }
   }
 
   const padded = await sharp({
@@ -158,20 +185,26 @@ async function buildGlitchedLogo(logoLayer, width, height, maxOffset, slices, co
 // Every per-color and background separation is sliced from this one mask, so they
 // can never disagree with each other at a given pixel. Built at the full padded
 // height (before the final centered crop) so its bounding box can be measured.
-async function buildPaddedShapeMask(logoLayer, width, height, maxOffset, slices) {
-  const paddedHeight = height + 2 * maxOffset;
+async function buildPaddedShapeMask(logoLayer, width, height, totalMaxOffset, slices) {
+  const paddedHeight = height + 2 * totalMaxOffset;
 
   const composites = [];
   for (const slice of slices) {
-    const mask = await sharp(logoLayer)
-      .extract({ left: slice.left, top: 0, width: slice.width, height })
-      .extractChannel(3)
-      .threshold(128) // snap to pure 0/255, eliminating SVG/PNG antialiasing
-      .negate() // shape -> black (0), background -> white (255)
-      .png()
-      .toBuffer();
+    for (const seg of slice.segments) {
+      const mask = await sharp(logoLayer)
+        .extract({ left: slice.left, top: seg.top, width: slice.width, height: seg.height })
+        .extractChannel(3)
+        .threshold(128)
+        .negate()
+        .png()
+        .toBuffer();
 
-    composites.push({ input: mask, left: slice.left, top: maxOffset + slice.offset });
+      composites.push({
+        input: mask,
+        left: slice.left,
+        top: totalMaxOffset + slice.offset + seg.top + seg.offset,
+      });
+    }
   }
 
   return sharp({
@@ -243,17 +276,18 @@ async function generateVariant(ctx, seed, isBatch) {
   const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas } = ctx;
 
   const rng = mulberry32(seed);
-  const slices = planSlices(width, glitch.sliceCount, glitch.maxOffset, colorWeights, rng);
+  const totalMaxOffset = glitch.maxOffset + (glitch.segments.enabled ? glitch.segments.maxOffset : 0);
+  const slices = planSlices(width, height, glitch.sliceCount, glitch.maxOffset, glitch.segments, colorWeights, rng);
 
-  const paddedHeight = height + 2 * glitch.maxOffset;
-  const paddedShapeMask = await buildPaddedShapeMask(logoLayer, width, height, glitch.maxOffset, slices);
+  const paddedHeight = height + 2 * totalMaxOffset;
+  const paddedShapeMask = await buildPaddedShapeMask(logoLayer, width, height, totalMaxOffset, slices);
   const cropTop = await computeCenteredCropTop(paddedShapeMask, height, paddedHeight);
 
   const dstPath = path.resolve(
     baseDir,
     isBatch ? withSeedSuffix(config.output.dst, seed) : config.output.dst
   );
-  const glitched = await buildGlitchedLogo(logoLayer, width, height, glitch.maxOffset, slices, colors, cropTop);
+  const glitched = await buildGlitchedLogo(logoLayer, width, height, totalMaxOffset, slices, colors, cropTop);
   let mainBuffer = await glitched.flatten({ background }).png().toBuffer();
   if (canvas.enabled) {
     mainBuffer = await expandCanvas(mainBuffer, canvas.width, canvas.height, { r: 0, g: 0, b: 0, alpha: 0 });
@@ -324,6 +358,11 @@ async function main() {
     sliceCount: config.glitch.sliceCount,
     maxOffset: config.glitch.maxOffset,
     fit: config.glitch.fit ?? 0.85,
+    segments: {
+      enabled: config.glitch.segments?.enabled ?? false,
+      segmentCount: config.glitch.segments?.segmentCount ?? 5,
+      maxOffset: config.glitch.segments?.maxOffset ?? 8,
+    },
   };
 
   const { canvasWidth, canvasHeight, canvasEnabled } = config.output;

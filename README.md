@@ -1,6 +1,6 @@
 # fhp-logo-tufting-gen
 
-Generative design tool that turns a logo into a glitched, multi-colour graphic for our tufting system. It slices a vector logo into vertical strips, offsets each strip vertically, and colours the strips from a small palette. It can also export per-colour black/white separations ready for a tufting machine.
+Generative design tool that turns a logo into a glitched, multi-colour graphic for our tufting system. It slices a vector logo into vertical strips, offsets each strip vertically, and colours the strips from a small palette. Optionally each strip can be further divided into horizontal segments with their own independent vertical offsets for a more fragmented glitch. It can also export per-colour black/white separations ready for a tufting machine.
 
 ## Requirements
 
@@ -35,10 +35,11 @@ All paths in the config file are resolved relative to the config file's own loca
 1. The input SVG is rasterized and centered on a transparent canvas matching the output size.
 2. The canvas is divided into `glitch.sliceCount` equal-width vertical strips.
 3. Each strip is assigned one of the palette colors (in proportion to `percentage`, see below) and a random vertical offset between `-maxOffset` and `+maxOffset` pixels.
-4. The actual ink bounding box of the offset strips is measured, and the crop window is centered on it — so the glitched logo stays vertically (and horizontally) centered in the canvas no matter how the random offsets happen to skew.
-5. The colored, offset strips are composited onto a white (or configured background colour) canvas, producing the `width`×`height` image.
-6. If `output.canvasWidth`/`canvasHeight` are set, that image is placed in the upper-left of a larger canvas — see [Canvas expansion](#canvas-expansion) below — then saved as the main output PNG.
-7. If separations are enabled, the same strip layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
+4. If `glitch.segments` is enabled, each strip is further divided into `segmentCount` equal-height horizontal segments, and each segment is given an additional independent vertical offset between `-segments.maxOffset` and `+segments.maxOffset` pixels.
+5. The actual ink bounding box of the offset strips (and segments) is measured, and the crop window is centered on it — so the glitched logo stays vertically (and horizontally) centered in the canvas no matter how the random offsets happen to skew.
+6. The colored, offset strips (or segments) are composited onto a white (or configured background colour) canvas, producing the `width`×`height` image.
+7. If `output.canvasWidth`/`canvasHeight` are set, that image is placed in the upper-left of a larger canvas — see [Canvas expansion](#canvas-expansion) below — then saved as the main output PNG.
+8. If separations are enabled, the same strip/segment layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
 
 Because the main image and the separations are built from the same strip plan and the same centering calculation, the separations always line up exactly with what's visible in the main output.
 
@@ -76,7 +77,12 @@ Because the main image and the separations are built from the same strip plan an
         "sliceCount": 30,
         "maxOffset": 16,
         "fit": 0.85,
-        "seeds": [1234, 5678, 91011]
+        "seeds": [1234, 5678, 91011],
+        "segments": {
+            "enabled": false,
+            "segmentCount": 5,
+            "maxOffset": 8
+        }
     }
 }
 ```
@@ -119,6 +125,10 @@ Because the main image and the separations are built from the same strip plan an
 | `fit` | number | Fraction (0–1) of the canvas the logo is scaled to fit within before slicing, preserving its aspect ratio and centering it. Defaults to `0.85`. |
 | `seed` | number | Used when `seeds` is not set. A fixed seed makes the glitch pattern reproducible; omit it to get a different random result every run. |
 | `seeds` | array of numbers | Generates one variant per seed in a single run — see [Batch generation](#batch-generation). Takes precedence over `seed`. |
+| `segments` | object \| omitted | Optional second-level glitch pass — see [Segment glitch](#segment-glitch) below. Omit entirely, or set `enabled: false`, to disable. |
+| `segments.enabled` | boolean | Defaults to `false`. Set to `true` to enable the segment pass. |
+| `segments.segmentCount` | number | How many equal-height horizontal segments each vertical strip is split into. Defaults to `5`. |
+| `segments.maxOffset` | number | Maximum additional vertical displacement (in pixels) applied to any individual segment. Defaults to `8`. The total worst-case displacement is `maxOffset + segments.maxOffset`; the padded canvas and centred-crop logic account for both automatically. |
 
 ## Batch generation
 
@@ -155,6 +165,26 @@ These separations are:
 - **Mutually exclusive and exhaustive** — every pixel is black in exactly one of the separation files (never zero, never more than one), so overlaying all of them reconstructs the full glitched logo with no gaps or overlaps.
 
 This is intended for production workflows (e.g. tufting) where each colour needs its own clean stencil/mask.
+
+## Segment glitch
+
+When `glitch.segments.enabled` is `true`, each vertical strip is cut into `segmentCount` equal-height horizontal pieces before compositing. Every segment gets its own random vertical offset (independent of the strip's offset), so the strip appears fragmented rather than shifting as a single block.
+
+```json
+"glitch": {
+    "sliceCount": 30,
+    "maxOffset": 16,
+    "segments": {
+        "enabled": true,
+        "segmentCount": 8,
+        "maxOffset": 12
+    }
+}
+```
+
+- The total worst-case displacement is `maxOffset + segments.maxOffset`. The padded working canvas and the centred-crop calculation both account for the combined range automatically.
+- Existing seeds (without segments enabled) are unaffected — disabling segments is equivalent to one full-height segment per strip with zero extra offset.
+- Color separations work the same way; the segment offsets are already baked into the shared shape mask from which separations are derived.
 
 ## Canvas expansion
 

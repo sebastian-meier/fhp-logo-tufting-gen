@@ -26,6 +26,12 @@
     "glitch": {
         "sliceCount": 30,
         "maxOffset": 16,
-        "seed": [1234]
+        "fit": 0.90,
+        "seed": [1234],
+        "segments": {
+            "enabled": false,
+            "segmentCount": 5,
+            "maxOffset": 8
+        }
     }
 }
