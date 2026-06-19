@@ -32,12 +32,12 @@ function randInt(rng, min, max) {
   return Math.floor(rng() * (max - min + 1)) + min;
 }
 
-// Inserts "-<seed>" before a file's extension, e.g. "out.png" -> "out-42.png".
 function withSeedSuffix(filePath, seed) {
   const ext = path.extname(filePath);
   const base = filePath.slice(0, filePath.length - ext.length);
   return `${base}-${seed}${ext}`;
 }
+
 
 function shuffle(rng, array) {
   const result = array.slice();
@@ -158,6 +158,7 @@ async function buildGlitchedLogo(logoLayer, width, height, totalMaxOffset, slice
       const segAlpha = await sharp(logoLayer)
         .extract({ left: slice.left, top: seg.top, width: slice.width, height: seg.height })
         .extractChannel(3)
+        .threshold(128)
         .png()
         .toBuffer();
 
@@ -272,8 +273,8 @@ async function expandCanvas(buffer, canvasWidth, canvasHeight, background) {
     .toBuffer();
 }
 
-async function generateVariant(ctx, seed, isBatch) {
-  const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas } = ctx;
+async function generateVariant(ctx, seed, seedIndex, isBatch) {
+  const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas, naming, padLen } = ctx;
 
   const rng = mulberry32(seed);
   const totalMaxOffset = glitch.maxOffset + (glitch.segments.enabled ? glitch.segments.maxOffset : 0);
@@ -283,9 +284,12 @@ async function generateVariant(ctx, seed, isBatch) {
   const paddedShapeMask = await buildPaddedShapeMask(logoLayer, width, height, totalMaxOffset, slices);
   const cropTop = await computeCenteredCropTop(paddedShapeMask, height, paddedHeight);
 
+  const batchLabel = naming === 'index'
+    ? String(seedIndex + 1).padStart(padLen, '0')
+    : String(seed);
   const dstPath = path.resolve(
     baseDir,
-    isBatch ? withSeedSuffix(config.output.dst, seed) : config.output.dst
+    isBatch ? withSeedSuffix(config.output.dst, batchLabel) : config.output.dst
   );
   const glitched = await buildGlitchedLogo(logoLayer, width, height, totalMaxOffset, slices, colors, cropTop);
   let mainBuffer = await glitched.flatten({ background }).png().toBuffer();
@@ -301,7 +305,7 @@ async function generateVariant(ctx, seed, isBatch) {
   const separationsEnabled = !!separations && separations.enabled !== false;
   if (separationsEnabled) {
     const baseSepDir = path.resolve(baseDir, separations.dir);
-    const sepDir = isBatch ? path.join(baseSepDir, String(seed)) : baseSepDir;
+    const sepDir = isBatch ? path.join(baseSepDir, batchLabel) : baseSepDir;
     fs.mkdirSync(sepDir, { recursive: true });
     const prefix = separations.prefix ?? 'color';
 
@@ -378,6 +382,8 @@ async function main() {
 
   const isBatch = Array.isArray(config.glitch.seeds) && config.glitch.seeds.length > 0;
   const seeds = isBatch ? config.glitch.seeds : [config.glitch.seed ?? Date.now()];
+  const naming = config.output.naming ?? 'seed';
+  const padLen = String(seeds.length).length;
 
   const offsetX = config.input.offsetX ?? 0;
   const offsetY = config.input.offsetY ?? 0;
@@ -387,9 +393,9 @@ async function main() {
   // across every variant in a batch run.
   const logoLayer = await rasterizeCenteredLogo(svgBuffer, width, height, glitch.fit, offsetX, offsetY);
 
-  const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas };
-  for (const seed of seeds) {
-    await generateVariant(ctx, seed, isBatch);
+  const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas, naming, padLen };
+  for (let i = 0; i < seeds.length; i++) {
+    await generateVariant(ctx, seeds[i], i, isBatch);
   }
 }
 

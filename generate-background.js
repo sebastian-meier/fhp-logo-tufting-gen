@@ -37,6 +37,7 @@ function withSeedSuffix(filePath, seed) {
   return `${base}-${seed}${ext}`;
 }
 
+
 function shuffle(rng, array) {
   const result = array.slice();
   for (let i = result.length - 1; i > 0; i--) {
@@ -229,8 +230,8 @@ async function expandCanvas(buffer, canvasWidth, canvasHeight, background) {
     .toBuffer();
 }
 
-async function generateVariant(ctx, seed, isBatch) {
-  const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, strips, alpha, segmentCount, canvas } = ctx;
+async function generateVariant(ctx, seed, seedIndex, isBatch) {
+  const { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, strips, alpha, segmentCount, canvas, naming, padLen } = ctx;
 
   const rng = mulberry32(seed);
   // Segment cuts are drawn from the RNG per strip, so layout varies per seed.
@@ -241,7 +242,7 @@ async function generateVariant(ctx, seed, isBatch) {
   const bgBuffer = await buildSolidBackground(width, height, slices, colors);
 
   // Logo recolored with the flat background color, composited on top.
-  const logoAlpha = await sharp(logoLayer).extractChannel(3).png().toBuffer();
+  const logoAlpha = await sharp(logoLayer).extractChannel(3).threshold(128).png().toBuffer();
   const flatColor = await sharp({
     create: { width, height, channels: 3, background },
   })
@@ -259,9 +260,12 @@ async function generateVariant(ctx, seed, isBatch) {
     mainBuffer = await expandCanvas(mainBuffer, canvas.width, canvas.height, { r: 0, g: 0, b: 0, alpha: 0 });
   }
 
+  const batchLabel = naming === 'index'
+    ? String(seedIndex + 1).padStart(padLen, '0')
+    : String(seed);
   const dstPath = path.resolve(
     baseDir,
-    isBatch ? withSeedSuffix(config.output.dst, seed) : config.output.dst
+    isBatch ? withSeedSuffix(config.output.dst, batchLabel) : config.output.dst
   );
   fs.mkdirSync(path.dirname(dstPath), { recursive: true });
   fs.writeFileSync(dstPath, mainBuffer);
@@ -273,7 +277,7 @@ async function generateVariant(ctx, seed, isBatch) {
   if (!separationsEnabled) return;
 
   const baseSepDir = path.resolve(baseDir, separations.dir);
-  const sepDir = isBatch ? path.join(baseSepDir, String(seed)) : baseSepDir;
+  const sepDir = isBatch ? path.join(baseSepDir, batchLabel) : baseSepDir;
   fs.mkdirSync(sepDir, { recursive: true });
   const prefix = separations.prefix ?? 'color';
 
@@ -347,6 +351,8 @@ async function main() {
 
   const isBatch = Array.isArray(config.glitch.seeds) && config.glitch.seeds.length > 0;
   const seeds = isBatch ? config.glitch.seeds : [config.glitch.seed ?? Date.now()];
+  const naming = config.output.naming ?? 'seed';
+  const padLen = String(seeds.length).length;
 
   const offsetX = config.input.offsetX ?? 0;
   const offsetY = config.input.offsetY ?? 0;
@@ -359,9 +365,9 @@ async function main() {
   const alpha = await sharp(logoLayer).extractChannel(3).raw().toBuffer();
   const segmentCount = glitch.segments.enabled ? glitch.segments.segmentCount : 1;
 
-  const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, strips, alpha, segmentCount, canvas };
-  for (const seed of seeds) {
-    await generateVariant(ctx, seed, isBatch);
+  const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, strips, alpha, segmentCount, canvas, naming, padLen };
+  for (let i = 0; i < seeds.length; i++) {
+    await generateVariant(ctx, seeds[i], i, isBatch);
   }
 }
 

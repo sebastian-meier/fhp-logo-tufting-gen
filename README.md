@@ -74,6 +74,7 @@ The separations are built from the same strip plan and the same centering calcul
         "width": 375,
         "height": 260,
         "dst": "assets/output.png",
+        "naming": "seed",
         "canvasWidth": 375,
         "canvasHeight": 320,
         "canvasEnabled": true,
@@ -116,12 +117,13 @@ The separations are built from the same strip plan and the same centering calcul
 |---|---|---|
 | `width` | number | Canvas width in pixels — the glitch is generated at this size. |
 | `height` | number | Canvas height in pixels — the glitch is generated at this size. |
-| `dst` | string | Path to the main output PNG. When generating a batch (see `glitch.seeds`), each variant's seed is inserted before the extension, e.g. `assets/output.png` → `assets/output-1234.png`. |
+| `dst` | string | Path to the main output PNG. When generating a batch (see `glitch.seeds`), a label is inserted before the extension — see `naming` below. |
+| `naming` | `"seed"` \| `"index"` | Controls the batch filename suffix. `"seed"` (default) uses the seed value, e.g. `output-1234.png`. `"index"` uses a zero-padded sequential number, e.g. `output-001.png`, `output-002.png` — useful for importing the series into Photoshop. |
 | `canvasWidth`, `canvasHeight` | number | Optional. If set (both must be set together), the generated `width`×`height` image is placed in the upper-left corner of a larger `canvasWidth`×`canvasHeight` canvas — see [Canvas expansion](#canvas-expansion). |
 | `canvasEnabled` | boolean | Only relevant when `canvasWidth`/`canvasHeight` are set. Defaults to `true`; set to `false` to keep the dimensions in the config without applying the canvas expansion. |
 | `separations` | object \| omitted | Color separation export settings. Omit entirely, or set `enabled: false`, to skip separations. |
 | `separations.enabled` | boolean | Defaults to `true` if the `separations` object is present. Set to `false` to keep the block in the config (for documentation/reference) without generating separation files. |
-| `separations.dir` | string | Directory for separation PNGs. In a batch run, each seed gets its own subfolder, e.g. `assets/separations/1234/`. |
+| `separations.dir` | string | Directory for separation PNGs. In a batch run, each seed gets its own subfolder named by the same label as the main output (seed value or padded index), e.g. `assets/separations/1234/` or `assets/separations/001/`. |
 | `separations.prefix` | string | Filename prefix for the per-colour separation files. Defaults to `color`. |
 
 ### `input`
@@ -167,7 +169,9 @@ Set `glitch.seeds` to an array to produce a whole set of variants in one run, on
 "glitch": { "seeds": [1234, 5678, 91011], "sliceCount": 30, "maxOffset": 16 }
 ```
 
-This produces `assets/output-1234.png`, `assets/output-5678.png`, `assets/output-91011.png` (and, if separations are enabled, `assets/separations/1234/`, `assets/separations/5678/`, `assets/separations/91011/`).
+With `output.naming` set to `"seed"` (the default), this produces `assets/output-1234.png`, `assets/output-5678.png`, `assets/output-91011.png` (and, if separations are enabled, `assets/separations/1234/`, …).
+
+Set `output.naming` to `"index"` to get a zero-padded sequential number instead — `assets/output-1.png`, `assets/output-2.png`, `assets/output-3.png` (padded to match the total count, so 120 seeds → `output-001.png` … `output-120.png`). This is handy for importing the batch as an image sequence in Photoshop or After Effects.
 
 If `seeds` is omitted, a single image is generated using `glitch.seed` (or a random seed if that's also omitted), written to the plain `output.dst` path with no suffix.
 

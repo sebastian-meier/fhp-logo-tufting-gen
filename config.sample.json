@@ -6,6 +6,7 @@
         "canvasHeight":260,
         "canvasEnabled":true,
         "dst": "assets/output.png",
+        "naming": "seed",
         "separations": {
             "dir": "assets/separations",
             "enabled": false,
