@@ -66,7 +66,7 @@ function allocateColorCounts(sliceCount, weights) {
   return counts;
 }
 
-async function rasterizeCenteredLogo(svgBuffer, width, height, fit) {
+async function rasterizeCenteredLogo(svgBuffer, width, height, fit, offsetX = 0, offsetY = 0) {
   const fitWidth = Math.round(width * fit);
   const fitHeight = Math.round(height * fit);
 
@@ -78,8 +78,8 @@ async function rasterizeCenteredLogo(svgBuffer, width, height, fit) {
     .png()
     .toBuffer({ resolveWithObject: true });
 
-  const left = Math.round((width - info.width) / 2);
-  const top = Math.round((height - info.height) / 2);
+  const left = Math.max(0, Math.min(width - info.width, Math.round((width - info.width) / 2) + offsetX));
+  const top = Math.max(0, Math.min(height - info.height, Math.round((height - info.height) / 2) + offsetY));
 
   return sharp({
     create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
@@ -379,10 +379,13 @@ async function main() {
   const isBatch = Array.isArray(config.glitch.seeds) && config.glitch.seeds.length > 0;
   const seeds = isBatch ? config.glitch.seeds : [config.glitch.seed ?? Date.now()];
 
+  const offsetX = config.input.offsetX ?? 0;
+  const offsetY = config.input.offsetY ?? 0;
+
   const svgBuffer = fs.readFileSync(svgPath);
   // Rasterizing the SVG is independent of the seed, so it's done once and reused
   // across every variant in a batch run.
-  const logoLayer = await rasterizeCenteredLogo(svgBuffer, width, height, glitch.fit);
+  const logoLayer = await rasterizeCenteredLogo(svgBuffer, width, height, glitch.fit, offsetX, offsetY);
 
   const ctx = { baseDir, config, width, height, background, colors, colorHexes, colorWeights, glitch, logoLayer, canvas };
   for (const seed of seeds) {

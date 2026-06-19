@@ -1,6 +1,11 @@
 # fhp-logo-tufting-gen
 
-Generative design tool that turns a logo into a glitched, multi-colour graphic for our tufting system. It slices a vector logo into vertical strips, offsets each strip vertically, and colours the strips from a small palette. Optionally each strip can be further divided into horizontal segments with their own independent vertical offsets for a more fragmented glitch. It can also export per-colour black/white separations ready for a tufting machine.
+Two-script generative design toolkit for turning a vector logo into multi-colour tufting graphics.
+
+- **`generate-logo.js`** — slices the logo into vertical strips, offsets each strip vertically, and colours them from a palette. Optionally divides each strip into horizontal segments with independent offsets for a more fragmented glitch. The background is a flat colour.
+- **`generate-background.js`** — keeps the logo intact (rendered in the background colour) while dividing the surrounding area into a grid of independently coloured cells. Colour is distributed so the *visible* area of each cell (accounting for logo overlap) matches the configured percentages.
+
+Both scripts share the same config file and export per-colour black/white separations ready for a tufting machine.
 
 ## Requirements
 
@@ -18,10 +23,13 @@ cp config.sample.json config.json
 ## Usage
 
 ```sh
-npm run generate            # uses config.json
-node generate.js path/to/other-config.json   # use a different config file
+npm run generate            # logo glitch — uses config.json
+node generate-logo.js path/to/other-config.json   # use a different config file
 
-npm run clean               # delete everything generate.js produced
+npm run generate-background            # background glitch — uses config.json
+node generate-background.js path/to/other-config.json
+
+npm run clean               # delete everything generate-logo.js / generate-background.js produced
 node clean.js path/to/other-config.json
 
 npm run seeds -- 5          # write 5 fresh random seeds into config.json's glitch.seeds
@@ -32,16 +40,29 @@ All paths in the config file are resolved relative to the config file's own loca
 
 ## How it works
 
+### Logo glitch (`generate-logo.js`)
+
 1. The input SVG is rasterized and centered on a transparent canvas matching the output size.
 2. The canvas is divided into `glitch.sliceCount` equal-width vertical strips.
-3. Each strip is assigned one of the palette colors (in proportion to `percentage`, see below) and a random vertical offset between `-maxOffset` and `+maxOffset` pixels.
-4. If `glitch.segments` is enabled, each strip is further divided into `segmentCount` equal-height horizontal segments, and each segment is given an additional independent vertical offset between `-segments.maxOffset` and `+segments.maxOffset` pixels.
-5. The actual ink bounding box of the offset strips (and segments) is measured, and the crop window is centered on it — so the glitched logo stays vertically (and horizontally) centered in the canvas no matter how the random offsets happen to skew.
-6. The colored, offset strips (or segments) are composited onto a white (or configured background colour) canvas, producing the `width`×`height` image.
-7. If `output.canvasWidth`/`canvasHeight` are set, that image is placed in the upper-left of a larger canvas — see [Canvas expansion](#canvas-expansion) below — then saved as the main output PNG.
-8. If separations are enabled, the same strip/segment layout is used to export one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations) below.
+3. Each strip is assigned one of the palette colours (in proportion to `percentage`, see below) and a random vertical offset between `-maxOffset` and `+maxOffset` pixels.
+4. If `glitch.segments` is enabled, each strip is further divided into `segmentCount` equal-height horizontal segments, and each segment gets its own additional random vertical offset.
+5. The actual ink bounding box of the offset strips (and segments) is measured, and the crop window is centered on it — so the glitched logo stays centered in the canvas regardless of how the random offsets skew.
+6. The coloured, offset strips are composited onto the background colour canvas, producing the `width`×`height` image.
+7. If `output.canvasWidth`/`canvasHeight` are set, that image is placed in the upper-left of a larger canvas — see [Canvas expansion](#canvas-expansion).
+8. If separations are enabled, the same strip/segment layout exports one black/white PNG per palette colour, plus one for the background — see [Color separations](#color-separations).
 
-Because the main image and the separations are built from the same strip plan and the same centering calculation, the separations always line up exactly with what's visible in the main output.
+The separations are built from the same strip plan and the same centering calculation, so they always line up exactly with the main output.
+
+### Background glitch (`generate-background.js`)
+
+1. The input SVG is rasterized and centered on a transparent canvas matching the output size.
+2. The canvas is divided into `glitch.sliceCount` equal-width vertical strips.
+3. If `glitch.segments` is enabled, each strip is independently cut into `segmentCount` horizontal segments at *random* positions (different per strip and per seed), creating an organic, non-banded grid of cells.
+4. For each cell, the number of pixels not covered by the logo is counted — this is the cell's *visible area*.
+5. Cells are assigned palette colours by a greedy algorithm (processing cells in a random order per seed) so that each colour's total visible area matches the configured percentages as closely as possible. This corrects for the logo overlapping some cells more than others.
+6. Each cell is painted as a solid rectangle of its assigned colour, filling the entire canvas.
+7. The logo is composited on top in the background colour, appearing as a solid cutout shape.
+8. If separations are enabled, one black/white PNG is exported per palette colour (showing that colour's cells, with the logo area removed), plus one for the background colour (the logo shape itself).
 
 ## Configuration (`config.json`)
 
@@ -63,7 +84,9 @@ Because the main image and the separations are built from the same strip plan an
         }
     },
     "input": {
-        "src": "assets/logo.svg"
+        "src": "assets/logo.svg",
+        "offsetX": 0,
+        "offsetY": 0
     },
     "palette": {
         "background": "#ffffff",
@@ -106,6 +129,8 @@ Because the main image and the separations are built from the same strip plan an
 | Field | Type | Description |
 |---|---|---|
 | `src` | string | Path to the source SVG logo. |
+| `offsetX` | number | Optional. Horizontal offset in pixels from the centered position. Positive = right, negative = left. Clamped so the logo stays within the canvas. Defaults to `0`. |
+| `offsetY` | number | Optional. Vertical offset in pixels from the centered position. Positive = down, negative = up. Clamped so the logo stays within the canvas. Defaults to `0`. |
 
 ### `palette`
 
@@ -114,21 +139,25 @@ Because the main image and the separations are built from the same strip plan an
 | `background` | string | Hex colour (`#rrggbb`) for the canvas background and the "background" separation. |
 | `colors` | array | List of `{ "hex": "#rrggbb", "percentage": number }` objects — the colours the logo strips are drawn in. |
 
-`percentage` values are weights, not strict percentages — they don't need to add up to 100 (e.g. `1, 1, 2` works the same as `25, 25, 50`). Each colour is given an exact share of the strips proportional to its weight (using largest-remainder rounding so the totals always add up to `sliceCount`), then the strip order is shuffled so same-coloured strips don't clump together. With many strips, the resulting colour proportions in the final image closely track the configured percentages; with very few strips, expect more rounding/visual variance.
+`percentage` values are weights, not strict percentages — they don't need to add up to 100 (e.g. `1, 1, 2` works the same as `25, 25, 50`).
+
+**Logo glitch**: each colour receives an exact share of strips proportional to its weight (using largest-remainder rounding so totals always equal `sliceCount`), then the strip order is shuffled so same-coloured strips don't clump. With many strips the proportions in the final image closely match the configured values; with very few strips expect more rounding variance.
+
+**Background glitch**: colours are distributed by *visible pixel area* rather than strip count. For each seed, cells are processed in a random order and each cell is assigned to whichever colour is furthest below its pixel-area target. This corrects for the logo covering some cells more than others, so the visible colour proportions match the configured weights regardless of logo size or position.
 
 ### `glitch`
 
 | Field | Type | Description |
 |---|---|---|
-| `sliceCount` | number | How many vertical strips the logo is cut into. |
-| `maxOffset` | number | Maximum vertical displacement (in pixels) applied to any strip, in either direction. |
-| `fit` | number | Fraction (0–1) of the canvas the logo is scaled to fit within before slicing, preserving its aspect ratio and centering it. Defaults to `0.85`. |
-| `seed` | number | Used when `seeds` is not set. A fixed seed makes the glitch pattern reproducible; omit it to get a different random result every run. |
+| `sliceCount` | number | How many vertical strips the canvas is divided into. |
+| `maxOffset` | number | **Logo glitch only.** Maximum vertical displacement (in pixels) applied to any strip, in either direction. |
+| `fit` | number | Fraction (0–1) of the canvas the logo is scaled to fit within, preserving its aspect ratio. Defaults to `0.85`. |
+| `seed` | number | Used when `seeds` is not set. A fixed seed makes the output reproducible; omit it to get a different random result every run. |
 | `seeds` | array of numbers | Generates one variant per seed in a single run — see [Batch generation](#batch-generation). Takes precedence over `seed`. |
-| `segments` | object \| omitted | Optional second-level glitch pass — see [Segment glitch](#segment-glitch) below. Omit entirely, or set `enabled: false`, to disable. |
-| `segments.enabled` | boolean | Defaults to `false`. Set to `true` to enable the segment pass. |
-| `segments.segmentCount` | number | How many equal-height horizontal segments each vertical strip is split into. Defaults to `5`. |
-| `segments.maxOffset` | number | Maximum additional vertical displacement (in pixels) applied to any individual segment. Defaults to `8`. The total worst-case displacement is `maxOffset + segments.maxOffset`; the padded canvas and centred-crop logic account for both automatically. |
+| `segments` | object \| omitted | Optional horizontal subdivision of each strip — see [Segment glitch](#segment-glitch) below. Omit entirely, or set `enabled: false`, to disable. |
+| `segments.enabled` | boolean | Defaults to `false`. Set to `true` to enable segment subdivision. |
+| `segments.segmentCount` | number | How many horizontal segments each vertical strip is split into. Defaults to `5`. |
+| `segments.maxOffset` | number | **Logo glitch only.** Maximum additional vertical displacement (in pixels) per segment. Defaults to `8`. The total worst-case displacement is `maxOffset + segments.maxOffset`. |
 
 ## Batch generation
 
@@ -155,20 +184,31 @@ It rewrites only the `"seeds": [...]` line in place (or inserts one into the `gl
 
 ## Color separations
 
-When `output.separations` is enabled, in addition to the main composite, the script writes one pure black/white PNG per palette colour, plus one for the background:
+When `output.separations` is enabled, in addition to the main composite, one pure black/white PNG is written per colour area. The exact files differ between the two scripts.
 
-- `background-<hex>.png` — black wherever no logo colour is present (i.e. where the background colour would be used).
-- `<prefix>-1-<hex>.png`, `<prefix>-2-<hex>.png`, … — one per `palette.colors` entry, in the order they're listed, black wherever that colour appears in the glitched logo.
+**Logo glitch (`generate-logo.js`)**
 
-These separations are:
+- `background-<hex>.png` — black wherever the background colour appears (i.e. everywhere the logo is not).
+- `<prefix>-1-<hex>.png`, `<prefix>-2-<hex>.png`, … — one per `palette.colors` entry, black wherever that colour appears in the glitched logo strips.
+
+**Background glitch (`generate-background.js`)**
+
+- `background-<hex>.png` — black wherever the logo sits (the logo is rendered in the background colour, so this is the logo's stencil).
+- `<prefix>-1-<hex>.png`, `<prefix>-2-<hex>.png`, … — one per `palette.colors` entry, black wherever that colour appears in the background cells, with the logo area removed.
+
+In both cases the separations are:
 - **Pure binary** — every pixel is either pure black (`#000000`) or pure white (`#ffffff`); no grayscale or antialiasing.
-- **Mutually exclusive and exhaustive** — every pixel is black in exactly one of the separation files (never zero, never more than one), so overlaying all of them reconstructs the full glitched logo with no gaps or overlaps.
+- **Mutually exclusive and exhaustive** — every pixel is black in exactly one file, so overlaying all of them reconstructs the full image with no gaps or overlaps.
 
 This is intended for production workflows (e.g. tufting) where each colour needs its own clean stencil/mask.
 
 ## Segment glitch
 
-When `glitch.segments.enabled` is `true`, each vertical strip is cut into `segmentCount` equal-height horizontal pieces before compositing. Every segment gets its own random vertical offset (independent of the strip's offset), so the strip appears fragmented rather than shifting as a single block.
+When `glitch.segments.enabled` is `true`, each vertical strip is subdivided into `segmentCount` horizontal pieces. The two scripts use segments differently.
+
+### Logo glitch
+
+Each strip is cut into equal-height segments, and every segment gets its own random vertical offset (independent of the strip's offset), so the strip appears fragmented rather than shifting as a single block.
 
 ```json
 "glitch": {
@@ -184,7 +224,24 @@ When `glitch.segments.enabled` is `true`, each vertical strip is cut into `segme
 
 - The total worst-case displacement is `maxOffset + segments.maxOffset`. The padded working canvas and the centred-crop calculation both account for the combined range automatically.
 - Existing seeds (without segments enabled) are unaffected — disabling segments is equivalent to one full-height segment per strip with zero extra offset.
-- Color separations work the same way; the segment offsets are already baked into the shared shape mask from which separations are derived.
+- Color separations are derived from the same strip/segment plan, so they always match the main output.
+
+### Background glitch
+
+Each strip is cut into `segmentCount` segments at *random* positions drawn independently per strip and per seed. Adjacent strips therefore have different cut points, producing an organic, non-banded grid rather than aligned horizontal bands. `segments.maxOffset` has no effect here (background cells are solid colour with no vertical displacement).
+
+```json
+"glitch": {
+    "sliceCount": 30,
+    "segments": {
+        "enabled": true,
+        "segmentCount": 8
+    }
+}
+```
+
+- With segments disabled (or `segmentCount: 1`), each strip is a single full-height cell of one colour.
+- The random cuts are part of the same seed-driven RNG sequence, so the same seed always produces the same cut positions and the same colour layout.
 
 ## Canvas expansion
 
@@ -216,7 +273,8 @@ assets/
   separations/           # generated color separations — not tracked, removed by `npm run clean`
 config.sample.json       # tracked template — copy to config.json to get started
 config.json              # your local generation settings — gitignored
-generate.js              # generates the glitch graphic(s) and separations
+generate-logo.js         # logo is sliced into glitched colored strips; background is flat
+generate-background.js   # logo stays intact; background is sliced into glitched colored strips
 clean.js                 # removes generated output
 seeds.js                 # writes N fresh random seeds into config.json
 ```

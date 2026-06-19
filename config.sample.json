@@ -13,7 +13,9 @@
         }
     },
     "input": {
-        "src": "assets/logo.svg"
+        "src": "assets/logo.svg",
+        "offsetX": 0,
+        "offsetY": 0
     },
     "palette": {
         "background": "#ffffff",
